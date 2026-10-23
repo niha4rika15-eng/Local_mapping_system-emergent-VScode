@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="theme-color" content="#0a0010" />
+<title>PCNS — Precision Campus Navigation</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+  integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+<link rel="stylesheet" href="pcns.css" />
+</head>
+<body>
+  <div id="map" data-testid="map-container"></div>
+
+  <!-- Training Mode global banner -->
+  <div id="trainingBanner" class="training-banner" data-testid="training-banner" hidden>
+    <span class="warn-dot"></span>
+    <strong>TRAINING MODE ACTIVE</strong>
+    <span class="muted">— Indoor mapping in progress. Markers will be saved globally.</span>
+  </div>
+
+  <!-- Floating Search Bar -->
+  <div class="top-bar">
+    <div class="search-wrap">
+      <input id="searchInput" type="text" placeholder="Search destinations…"
+        data-testid="search-input" autocomplete="off" />
+      <button id="adminBtn" class="icon-btn" data-testid="admin-open-btn" title="Admin">⚙</button>
+    </div>
+    <ul id="searchResults" class="search-results" data-testid="search-results"></ul>
+  </div>
+
+  <!-- HUD: steps + heading -->
+  <div class="hud" data-testid="hud">
+    <div class="hud-card">
+      <div class="hud-label">MODE</div>
+      <div class="hud-value" id="hudMode" data-testid="hud-mode">OUTDOOR</div>
+    </div>
+    <div class="hud-card">
+      <div class="hud-label">STEPS</div>
+      <div class="hud-value" id="hudSteps" data-testid="hud-steps">0</div>
+    </div>
+    <div class="hud-card">
+      <div class="hud-label">HEADING</div>
+      <div class="hud-value" id="hudHeading" data-testid="hud-heading">0°</div>
+    </div>
+    <div class="hud-card hud-training" id="hudXY" data-testid="hud-xy" hidden>
+      <div class="hud-label">X / Y (m)</div>
+      <div class="hud-value hud-xy-value">
+        <span id="hudX">+0.00</span> / <span id="hudY">+0.00</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Drop Marker floating button (Training Mode) -->
+  <div class="drop-marker-group">
+    <div class="drop-floor-wrap" id="dropFloorWrap" data-testid="drop-floor-wrap" hidden>
+      <label>Floor</label>
+      <input id="dropFloor" type="number" step="1" value="0" data-testid="drop-floor-input" />
+    </div>
+    <button id="dropMarkerBtn" class="drop-marker-btn" data-testid="drop-marker-btn" hidden>
+      <span class="drop-pin">📍</span> Drop Marker here
+    </button>
+  </div>
+
+  <!-- Floor Switcher (Elevator) -->
+  <div class="floor-switch" id="floorSwitch" data-testid="floor-switch"></div>
+
+  <!-- Arrival notification -->
+  <div id="arrivalToast" class="toast" data-testid="arrival-toast" hidden>
+    <strong>Arrived at Gate</strong>
+    <span>Tap the NFC Anchor to begin Indoor Navigation.</span>
+  </div>
+
+  <!-- Bottom action buttons -->
+  <div class="bottom-bar">
+    <button id="resyncBtn" class="btn btn-ghost" data-testid="resync-btn">I am here</button>
+    <button id="nfcBtn" class="btn btn-primary btn-nfc" data-testid="nfc-scan-btn">
+      <span class="nfc-pulse"></span>NFC SCAN
+    </button>
+    <button id="debugBtn" class="btn btn-ghost" data-testid="debug-open-btn">Debug</button>
+  </div>
+
+  <!-- Admin Modal -->
+  <div id="adminModal" class="modal" data-testid="admin-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Admin — Landmarks</h2>
+        <button class="icon-btn" data-close="adminModal" data-testid="admin-close-btn">✕</button>
+      </div>
+
+      <div id="adminLogin" class="stack">
+        <label>Admin password</label>
+        <input id="adminPass" type="password" data-testid="admin-password-input" placeholder="••••••••" />
+        <button id="adminLoginBtn" class="btn btn-primary" data-testid="admin-login-btn">Unlock</button>
+        <p id="adminLoginErr" class="err" hidden>Incorrect password.</p>
+      </div>
+
+      <div id="adminPanel" class="stack" hidden>
+        <div class="stack">
+          <label>Landmark name</label>
+          <input id="lmName" type="text" data-testid="landmark-name-input" placeholder="E-Block Gate" />
+
+          <label>Google Maps link <span class="muted">or</span> "lat, lng"</label>
+          <input id="lmPaste" type="text" data-testid="landmark-paste-input"
+            placeholder="https://maps.google.com/?q=28.5440,77.3350  or  28.5440, 77.3350" />
+
+          <div class="row">
+            <div class="stack grow">
+              <label>Latitude</label>
+              <input id="lmLat" type="number" step="any" data-testid="landmark-lat-input" />
+            </div>
+            <div class="stack grow">
+              <label>Longitude</label>
+              <input id="lmLng" type="number" step="any" data-testid="landmark-lng-input" />
+            </div>
+          </div>
+          <label>Floor <span class="muted">(optional; 0 = Ground)</span></label>
+          <input id="lmFloor" type="number" step="1" data-testid="landmark-floor-input" />
+
+          <label>NFC UID <span class="muted">(optional, for auto-anchor)</span></label>
+          <div class="row">
+            <input id="lmUid" type="text" data-testid="landmark-uid-input" class="grow" placeholder="04:A2:3B:1C:… or paste manually" />
+            <button id="lmScanUidBtn" class="btn btn-ghost" data-testid="landmark-scan-uid-btn">Scan tag</button>
+          </div>
+          <p id="lmUidStatus" class="muted small" hidden></p>
+
+          <button id="lmAddBtn" class="btn btn-primary" data-testid="landmark-add-btn">Add landmark</button>
+          <p id="lmErr" class="err" hidden></p>
+        </div>
+
+        <hr />
+        <div class="row" style="align-items:center;justify-content:space-between">
+          <label style="margin:0">Training Mode (Indoor Mapping)</label>
+          <label class="switch">
+            <input id="trainingToggle" type="checkbox" data-testid="training-toggle" />
+            <span class="slider-ui"></span>
+          </label>
+        </div>
+        <p class="muted small">Drop named markers at your current indoor X/Y position. Requires INDOOR mode.</p>
+
+        <div class="row" style="align-items:center;justify-content:space-between">
+          <label style="margin:0">Floor Heatmap (vertical alignment)</label>
+          <label class="switch">
+            <input id="heatmapToggle" type="checkbox" data-testid="heatmap-toggle" />
+            <span class="slider-ui"></span>
+          </label>
+        </div>
+        <p class="muted small">Dim other floors to 20% instead of hiding them — useful for stairwell/anchor alignment.</p>
+
+        <hr />
+        <h3>Data</h3>
+        <button id="exportCsvBtn" class="btn btn-ghost" data-testid="export-csv-btn">Export training markers (CSV)</button>
+
+        <hr />
+        <h3>Change admin password</h3>
+        <div class="stack">
+          <input id="newPass" type="password" placeholder="New password (min 4 chars)" data-testid="new-pass-input" />
+          <input id="newPass2" type="password" placeholder="Confirm new password" data-testid="new-pass-confirm-input" />
+          <button id="changePassBtn" class="btn btn-ghost" data-testid="change-pass-btn">Update password</button>
+          <p id="passStatus" class="muted small" hidden></p>
+        </div>
+
+        <hr />
+        <h3>Saved landmarks</h3>
+        <ul id="lmList" class="lm-list" data-testid="landmark-list"></ul>
+
+        <button id="adminLogoutBtn" class="btn btn-ghost" data-testid="admin-logout-btn">Lock</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Debug Modal -->
+  <div id="debugModal" class="modal" data-testid="debug-modal" hidden>
+    <div class="modal-card">
+      <div class="modal-head">
+        <h2>Debug / Simulation</h2>
+        <button class="icon-btn" data-close="debugModal" data-testid="debug-close-btn">✕</button>
+      </div>
+      <div class="stack">
+        <button id="simNfcBtn" class="btn btn-primary" data-testid="sim-nfc-btn">
+          Simulate NFC Tap (E-Block L1)
+        </button>
+
+        <label>Simulate NFC Tap by UID</label>
+        <div class="row">
+          <input id="simUidInput" type="text" class="grow" data-testid="sim-uid-input" placeholder="04:A2:3B:1C:…" />
+          <button id="simUidBtn" class="btn btn-ghost" data-testid="sim-uid-btn">Tap</button>
+        </div>
+
+        <div class="row">
+          <button id="simStepBtn" class="btn btn-ghost" data-testid="sim-step-btn">+1 Step</button>
+          <button id="simStep10Btn" class="btn btn-ghost" data-testid="sim-step10-btn">+10 Steps</button>
+        </div>
+
+        <label>Heading (°)</label>
+        <input id="simHeading" type="range" min="0" max="359" value="0" data-testid="sim-heading-slider" />
+        <div class="row">
+          <button id="simTurnLBtn" class="btn btn-ghost" data-testid="sim-turn-left-btn">⟲ -15°</button>
+          <button id="simTurnRBtn" class="btn btn-ghost" data-testid="sim-turn-right-btn">+15° ⟳</button>
+        </div>
+
+        <label>Simulate outdoor GPS near gate</label>
+        <button id="simGpsBtn" class="btn btn-ghost" data-testid="sim-gps-btn">Jump GPS near selected landmark</button>
+
+        <button id="simResetBtn" class="btn btn-ghost" data-testid="sim-reset-btn">Reset to Outdoor Mode</button>
+
+        <p class="muted small">
+          Desktop testing: Geolocation and NFC require HTTPS + mobile. Use simulation controls here.
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <script src="pcns.js"></script>
+</body>
+</html>
